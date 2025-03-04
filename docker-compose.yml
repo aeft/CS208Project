@@ -1,0 +1,38 @@
+services:
+  api-server:
+    build: ./api/server
+    container_name: api-server
+    environment:
+      - PORT=8080
+    ports:
+      - "8080:8080"
+      # volumes:
+      # - ./api/server:/app
+  api-server2:
+    build: ./api/server
+    container_name: api-server2
+    environment:
+      - PORT=8080
+    ports:
+      - "8081:8080"
+
+  api-client:
+    build: ./api/client
+    container_name: api-client
+    depends_on:
+      - nginx
+      # volumes:
+      # - ./api/client:/app
+    environment:
+      - IN_DOCKER=1
+    command: [ "./client" ]
+
+  nginx:
+    build: ./nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - api-server
+      # volumes:
+      # - ./nginx/load_balancer.conf:/etc/nginx/conf.d/load_balancer.conf:ro
