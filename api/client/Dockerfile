@@ -5,6 +5,7 @@ WORKDIR /app
 COPY . .
 
 RUN go mod init client || true
+RUN go mod tidy
 
 RUN go build -o client .
 

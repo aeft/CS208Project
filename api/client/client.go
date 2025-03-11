@@ -19,7 +19,7 @@ func main() {
 		dest = "nginx"
 	}
 
-	numbers := []int64{71 * 2 * 111 * 107, 1111111}
+	numbers := []int64{922337203685477578, 1111111}
 
 	for _, number := range numbers {
 
