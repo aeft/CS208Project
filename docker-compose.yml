@@ -31,6 +31,7 @@ services:
       - nginx
     environment:
       - IN_DOCKER=1
+      - TEST_GOROUTINES=10
     command: [ "./client" ]
     networks:
       - monitoring
