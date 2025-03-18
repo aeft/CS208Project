@@ -4,7 +4,7 @@ services:
     container_name: api-server1
     environment:
       - SERVER_NAME=api-server1
-    command: [ "sh", "-c", "./server & sleep 5 && curl --request PUT --data '{\"ID\": \"api-server1\", \"Name\": \"api-server1\", \"Address\": \"api-server1\", \"Port\": 8080}' http://consul:8500/v1/agent/service/register && wait" ]
+    command: [ "sh", "-c", "./server & sleep 5 && curl --request PUT --data '{\"ID\": \"api-server1\", \"Name\": \"api-server\", \"Address\": \"api-server1\", \"Port\": 8080}' http://consul:8500/v1/agent/service/register && wait" ]
     depends_on:
       - consul
     networks:
@@ -15,7 +15,7 @@ services:
     container_name: api-server2
     environment:
       - SERVER_NAME=api-server2
-    command: [ "sh", "-c", "./server & sleep 5 && curl --request PUT --data '{\"ID\": \"api-server2\", \"Name\": \"api-server2\", \"Address\": \"api-server2\", \"Port\": 8080}' http://consul:8500/v1/agent/service/register && wait" ]
+    command: [ "sh", "-c", "./server & sleep 5 && curl --request PUT --data '{\"ID\": \"api-server2\", \"Name\": \"api-server\", \"Address\": \"api-server2\", \"Port\": 8080}' http://consul:8500/v1/agent/service/register && wait" ]
     depends_on:
       - consul
     networks:
@@ -32,7 +32,7 @@ services:
     environment:
       - IN_DOCKER=1
       - TEST_GOROUTINES=10
-    command: [ "./client" ]
+    command: [ "sh", "-c", "sleep 6 && ./client" ]
     networks:
       - monitoring
 
@@ -46,6 +46,11 @@ services:
       - api-server2
     networks:
       - monitoring
+    command: >
+      sh -c "consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload' &
+            sleep 5 &&
+            curl --request PUT --data '{\"ID\":\"nginx\",\"Name\":\"nginx\",\"Address\":\"nginx\",\"Port\":80}' http://consul:8500/v1/agent/service/register &&
+            nginx -g 'daemon off;'"
 
   prometheus:
     depends_on:

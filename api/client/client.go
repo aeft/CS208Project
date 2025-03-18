@@ -17,12 +17,44 @@ type FactorizeResponse struct {
 	Factors []int `json:"factors"`
 }
 
-func main() {
-	dest := "localhost:8080"
-
-	if os.Getenv("IN_DOCKER") != "" {
-		dest = "nginx"
+func discoverService(consulAddr, service string) (string, error) {
+	url := fmt.Sprintf("http://%s/v1/catalog/service/%s", consulAddr, service)
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", fmt.Errorf("failed to query consul: %w", err)
 	}
+	defer resp.Body.Close()
+
+	var services []struct {
+		ServiceAddress string `json:"ServiceAddress"`
+		ServicePort    int    `json:"ServicePort"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&services); err != nil {
+		return "", fmt.Errorf("failed to decode consul response: %w", err)
+	}
+	if len(services) == 0 {
+		return "", fmt.Errorf("no instances for service %q found", service)
+	}
+	// Randomly pick one instance
+	chosen := services[rand.Intn(len(services))]
+	return fmt.Sprintf("%s:%d", chosen.ServiceAddress, chosen.ServicePort), nil
+}
+
+func main() {
+	// Use Consul to dynamically discover the address for nginx.
+	consulAddr := os.Getenv("CONSUL_ADDR")
+	if consulAddr == "" {
+		consulAddr = "consul:8500"
+	}
+
+	nginxDest, err := discoverService(consulAddr, "nginx")
+	if err != nil {
+		// fmt.Println("Error discovering nginx service:", err)
+		// nginxDest = "localhost:8080"
+		panic(fmt.Sprintf("Error discovering nginx service: %s", err))
+	}
+
+	fmt.Println("Discovered nginx instance:", nginxDest)
 
 	file, err := os.Open("test_numbers.txt")
 	if err != nil {
@@ -81,7 +113,7 @@ func main() {
 			})
 
 			for i, number := range numbers {
-				url := fmt.Sprintf("http://%s/factorize?number=%d", dest, number)
+				url := fmt.Sprintf("http://%s/factorize?number=%d", nginxDest, number)
 				resp, err := http.Get(url)
 				if err != nil {
 					fmt.Println("Error calling API:", err)
@@ -105,6 +137,8 @@ func main() {
 			}
 		}()
 	}
+
+	wg.Wait()
 
 	fmt.Printf("Finish factorization.\n")
 
