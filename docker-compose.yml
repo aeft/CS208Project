@@ -32,7 +32,7 @@ services:
     environment:
       - IN_DOCKER=1
       - TEST_GOROUTINES=10
-    command: [ "sh", "-c", "sleep 6 && ./client" ]
+    command: [ "sh", "-c", "sleep 6 && ./client" ] # wait for nginx and server ready
     networks:
       - monitoring
 

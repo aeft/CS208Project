@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,8 +10,9 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync"
-	"time"
+
+	"github.com/gin-gonic/gin"
+	"golang.org/x/sync/errgroup"
 )
 
 type FactorizeResponse struct {
@@ -40,7 +42,7 @@ func discoverService(consulAddr, service string) (string, error) {
 	return fmt.Sprintf("%s:%d", chosen.ServiceAddress, chosen.ServicePort), nil
 }
 
-func main() {
+func StartFactorizationRequests(ctx context.Context) error {
 	// Use Consul to dynamically discover the address for nginx.
 	consulAddr := os.Getenv("CONSUL_ADDR")
 	if consulAddr == "" {
@@ -58,8 +60,7 @@ func main() {
 
 	file, err := os.Open("test_numbers.txt")
 	if err != nil {
-		fmt.Println("Error opening file:", err)
-		return
+		return fmt.Errorf("failed to open file: %w", err)
 	}
 	defer file.Close()
 
@@ -76,8 +77,7 @@ func main() {
 	}
 
 	if err := scanner.Err(); err != nil {
-		fmt.Println("Error reading file:", err)
-		return
+		return fmt.Errorf("failed to read file: %w", err)
 	}
 
 	seed := int64(42) // Default seed
@@ -98,13 +98,10 @@ func main() {
 		}
 	}
 
-	wg := sync.WaitGroup{}
+	g, ctx := errgroup.WithContext(ctx)
 
 	for t := 0; t < int(testGoroutines); t++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		g.Go(func() error {
 			numbers := make([]int64, len(numbersFromFile))
 			_ = copy(numbers, numbersFromFile)
 
@@ -113,6 +110,12 @@ func main() {
 			})
 
 			for i, number := range numbers {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				default:
+				}
+
 				url := fmt.Sprintf("http://%s/factorize?number=%d", nginxDest, number)
 				resp, err := http.Get(url)
 				if err != nil {
@@ -135,15 +138,24 @@ func main() {
 
 				fmt.Printf("(%d) Number: %d\nFactors: %v\n", i+1, number, apiResponse.Factors)
 			}
-		}()
+			return nil
+		})
 	}
 
-	wg.Wait()
+	fmt.Printf("Finish factorization\n")
 
-	fmt.Printf("Finish factorization.\n")
+	return g.Wait()
+}
 
-	// keep the client running
-	for {
-		time.Sleep(10 * time.Second)
-	}
+func main() {
+	router := gin.New()
+	router.GET("/start", func(c *gin.Context) {
+		if err := StartFactorizationRequests(c.Request.Context()); err != nil {
+			fmt.Printf("Error: %s\n", err)
+			c.JSON(http.StatusOK, gin.H{"error": fmt.Sprintf(("Error: %s"), err)})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"message": "Finish factorization"})
+	})
+	router.Run(":8090")
 }
