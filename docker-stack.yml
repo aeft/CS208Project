@@ -66,10 +66,10 @@ services:
         protocol: tcp
         mode: host
     command: >
-      sh -c "sleep 5 &&
-            consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload' &
-            sleep 2 &&
-            nginx -g 'daemon off;'"
+      sh -c "sleep 1 &&
+        consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload || true' &
+        sleep 2 &&
+        nginx -g 'daemon off;'"
     deploy:
       replicas: 1
     networks:
@@ -90,6 +90,9 @@ services:
         mode: host
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.labels.shortname == node0
     networks:
       - monitoring
 
@@ -103,6 +106,9 @@ services:
     command: [ "agent", "-dev", "-client", "0.0.0.0", "-ui", "-data-dir=/tmp/consul" ]
     deploy:
       replicas: 1
+      placement:
+        constraints:
+          - node.labels.shortname == node0
     networks:
       - monitoring
 
