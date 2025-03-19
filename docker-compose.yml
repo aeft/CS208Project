@@ -1,0 +1,74 @@
+services:
+  api-server1:
+    build: ./api/server
+    container_name: api-server1
+    environment:
+      - SERVER_NAME=api-server1
+    command: [ "sh", "-c", "./server & sleep 5 && curl --request PUT --data '{\"ID\": \"api-server1\", \"Name\": \"api-server1\", \"Address\": \"api-server1\", \"Port\": 8080}' http://consul:8500/v1/agent/service/register && wait" ]
+    depends_on:
+      - consul
+    networks:
+      - monitoring
+
+  api-server2:
+    build: ./api/server
+    container_name: api-server2
+    environment:
+      - SERVER_NAME=api-server2
+    command: [ "sh", "-c", "./server & sleep 5 && curl --request PUT --data '{\"ID\": \"api-server2\", \"Name\": \"api-server2\", \"Address\": \"api-server2\", \"Port\": 8080}' http://consul:8500/v1/agent/service/register && wait" ]
+    depends_on:
+      - consul
+    networks:
+      - monitoring
+    cpu_shares: 256 # CPU shares (default is 1024)
+    cpu_quota: 25000 # CPU quota in microseconds
+    cpu_period: 100000 # CPU period in microseconds
+
+  api-client:
+    build: ./api/client
+    container_name: api-client
+    depends_on:
+      - nginx
+    environment:
+      - IN_DOCKER=1
+      - TEST_GOROUTINES=10
+    command: [ "./client" ]
+    networks:
+      - monitoring
+
+  nginx:
+    build: ./nginx
+    container_name: nginx
+    ports:
+      - "80:80"
+    depends_on:
+      - api-server1
+      - api-server2
+    networks:
+      - monitoring
+
+  prometheus:
+    depends_on:
+      - consul
+    image: prom/prometheus
+    container_name: prometheus
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+    networks:
+      - monitoring
+
+  consul:
+    image: hashicorp/consul
+    container_name: consul
+    ports:
+      - "8500:8500"
+    command: [ "agent", "-dev", "-client", "0.0.0.0", "-ui", "-data-dir=/tmp/consul" ]
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
