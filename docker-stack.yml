@@ -1,0 +1,111 @@
+version: "3.8"
+
+services:
+  # Registrator automatically registers services in Consul
+  registrator:
+    image: hypolas/registrator:latest
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock  
+    command: --internal consul://consul:8500
+    networks:
+      - monitoring
+    deploy:
+      mode: global       
+    user: "0:0"
+
+  api-server-normal:
+    image: xor01/cs208-api-server:latest   
+    labels:
+      - "SERVICE_NAME=api-server"
+    command: "./server"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "1"    # Example CPU limit (equivalent to CPU quota settings)
+        reservations:
+          cpus: "1"    # Example CPU reservation
+    networks:
+      - monitoring
+
+  api-server-special:
+    image: xor01/cs208-api-server:latest
+    labels:
+      - "SERVICE_NAME=api-server"
+    command: "./server"
+    deploy:
+      replicas: 1
+      resources:
+        limits:
+          cpus: "0.25"
+        reservations:
+          cpus: "0.25"
+    networks:
+      - monitoring
+
+  api-client:
+    image: xor01/cs208-api-client:latest  
+    labels:
+      - "SERVICE_NAME=api-client"
+    environment:
+      - IN_DOCKER=1
+      - TEST_GOROUTINES=10
+    command: "./client"
+    deploy:
+      replicas: 1
+    networks:
+      - monitoring
+
+  nginx:
+    image: xor01/cs208-nginx:latest  
+    labels:
+      - "SERVICE_NAME=nginx"
+    ports:
+      - target: 80
+        published: 80
+        protocol: tcp
+        mode: host
+    command: >
+      sh -c "sleep 5 &&
+            consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload' &
+            sleep 2 &&
+            nginx -g 'daemon off;'"
+    deploy:
+      replicas: 1
+    networks:
+      - monitoring
+
+  prometheus:
+    image: prom/prometheus
+    labels:
+      - "SERVICE_NAME=prometheus"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    ports:
+      - target: 9090
+        published: 9090
+        protocol: tcp
+        mode: host
+    deploy:
+      replicas: 1
+    networks:
+      - monitoring
+
+  consul:
+    image: hashicorp/consul
+    ports:
+      - target: 8500
+        published: 8500
+        protocol: tcp
+        mode: host
+    command: [ "agent", "-dev", "-client", "0.0.0.0", "-ui", "-data-dir=/tmp/consul" ]
+    deploy:
+      replicas: 1
+    networks:
+      - monitoring
+
+networks:
+  monitoring:
+    driver: overlay

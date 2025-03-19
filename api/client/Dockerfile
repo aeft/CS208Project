@@ -10,3 +10,5 @@ RUN go mod tidy
 RUN go build -o client .
 
 CMD ["./client"]
+
+EXPOSE 8090
