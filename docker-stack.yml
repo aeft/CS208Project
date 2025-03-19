@@ -19,7 +19,7 @@ services:
       - "SERVICE_NAME=api-server"
     command: "./server"
     deploy:
-      replicas: 1
+      replicas: 2
       resources:
         limits:
           cpus: "1"    # Example CPU limit (equivalent to CPU quota settings)
@@ -60,15 +60,9 @@ services:
     image: xor01/cs208-nginx:latest  
     labels:
       - "SERVICE_NAME=nginx"
-    ports:
-      - target: 80
-        published: 80
-        protocol: tcp
-        mode: host
     command: >
-      sh -c "sleep 1 &&
+      sh -c "consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf' -once && 
         consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload || true' &
-        sleep 2 &&
         nginx -g 'daemon off;'"
     deploy:
       replicas: 1
@@ -115,3 +109,4 @@ services:
 networks:
   monitoring:
     driver: overlay
+    attachable: true

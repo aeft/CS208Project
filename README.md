@@ -48,9 +48,11 @@ list info in all nodes
 for node in $(sudo docker node ls --format '{{.Hostname}}'); do   echo "=== Node: $node ===";   sudo docker node ps "$node"; done
 ```
 
-delete all docker services
+delete all docker services/container/network
 ```shell
 sudo docker service rm $(sudo docker service ls -q)
+sudo docker container prune -f
+sudo docker network prune -f
 ```
 
 execute a command inside a container
