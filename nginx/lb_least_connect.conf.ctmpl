@@ -1,0 +1,21 @@
+log_format upstreamlog '$remote_addr $remote_user [$time_local] $request status:$status bytes:$body_bytes_sent upstream:$upstream_addr';
+
+upstream factorization_servers {
+    least_conn;
+    {{ range service "api-server" }}
+    server {{ .Address }}:{{ .Port }};
+    {{ end }}
+}
+
+server {
+    listen 80;
+    server_name _;
+
+    location / {
+        proxy_pass http://factorization_servers;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        access_log /var/log/nginx/access.log upstreamlog;
+    }
+}

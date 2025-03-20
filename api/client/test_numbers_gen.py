@@ -4,12 +4,12 @@ import sympy
 # Total number of numbers to generate
 num_total = 5000
 # Define the number of primes (1/5 of the total) and composites
-num_prime = num_total // 5    # 200 primes
-num_composite = num_total - num_prime  # 800 composites
+num_prime = num_total // 5    
+num_composite = num_total - num_prime
 
 # Overall allowed range for final numbers
-overall_lower = 10**8    # 10^8
-overall_upper = 10**16   # 10^16
+overall_lower = 10**6 
+overall_upper = 10**14
 
 # Probability for selecting the "small" branch
 # (i.e., generating numbers that are not that large)
@@ -18,15 +18,15 @@ p_small = 0.3  # 30% chance to choose the small branch
 primes_list = []
 composites_list = []
 
-# Generate 200 prime numbers
+# Generate prime numbers
 while len(primes_list) < num_prime:
     # With probability p_small, generate a smaller prime; otherwise, a larger one.
     if random.random() < p_small:
-        lower = 10**8    # lower bound for small primes
-        upper = 10**12   # upper bound for small primes
+        lower = 10**5    # lower bound for small primes
+        upper = 10**8   # upper bound for small primes
     else:
-        lower = 10**12   # lower bound for large primes
-        upper = 10**16   # upper bound for large primes
+        lower = 10**7   # lower bound for large primes
+        upper = 10**12   # upper bound for large primes
     try:
         # sympy.randprime returns a random prime in the interval [lower, upper)
         prime_num = sympy.randprime(lower, upper)
@@ -39,12 +39,12 @@ while len(primes_list) < num_prime:
 while len(composites_list) < num_composite:
     if random.random() < p_small:
         # Small branch: choose factors from a smaller range to get products between 10^8 and 10^12.
-        factor_lower = 10**4    # 10^4
-        factor_upper = 10**6    # 10^6; max product: 10^6 * 10^6 = 10^12
+        factor_lower = 10**3
+        factor_upper = 10**5
     else:
         # Large branch: choose factors from a larger range to allow products up to 10^16.
-        factor_lower = 10**4    # 10^4
-        factor_upper = 10**8    # 10^8; max product: 10^8 * 10^8 = 10^16
+        factor_lower = 10**5  
+        factor_upper = 10**9  
     # Generate two random prime factors
     p = sympy.randprime(factor_lower, factor_upper)
     q = sympy.randprime(factor_lower, factor_upper)

@@ -4,6 +4,9 @@ RUN rm /etc/nginx/conf.d/default.conf
 
 # COPY load_balancer.conf /etc/nginx/conf.d/
 
+RUN apt-get update && \
+    apt install net-tools
+
 # Install consul-template (adjust version as needed)
 ENV CONSUL_TEMPLATE_VERSION=0.40.0
 RUN apt-get update && \

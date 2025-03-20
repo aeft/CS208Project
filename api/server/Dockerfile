@@ -4,6 +4,9 @@ WORKDIR /app
 
 COPY . .
 
+RUN apt update && \
+    apt install stress-ng
+
 RUN go mod init server || true
 RUN go mod tidy
 
