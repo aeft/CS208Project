@@ -62,8 +62,8 @@ services:
       - "SERVICE_NAME=nginx"
     command: >
       sh -c "consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf' -once && 
-        consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload || true' &
-        nginx -g 'daemon off;'"
+        consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:openresty -s reload || true' &
+        openresty -g 'daemon off;'"
     deploy:
       replicas: 1
       placement:

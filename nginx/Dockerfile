@@ -1,16 +1,23 @@
-FROM nginx:latest
+FROM openresty/openresty:alpine-fat
 
-RUN rm /etc/nginx/conf.d/default.conf
+RUN mkdir -p /var/log/nginx && rm /etc/nginx/conf.d/default.conf
 
 # COPY load_balancer.conf /etc/nginx/conf.d/
 
-RUN apt-get update && \
-    apt install net-tools
+RUN apk add --no-cache net-tools wget unzip luarocks build-base git openssl-dev curl
+
+RUN ln -s /usr/local/openresty/luajit/bin/luarocks /usr/local/bin/luarocks
+
+RUN luarocks install lua-resty-http
+RUN luarocks install lua-resty-core
+RUN luarocks install lua-resty-balancer
+RUN luarocks install lua-resty-openssl
+
+RUN luarocks install lua-resty-prometheus
 
 # Install consul-template (adjust version as needed)
 ENV CONSUL_TEMPLATE_VERSION=0.40.0
-RUN apt-get update && \
-    apt-get install -y wget unzip && \
+RUN apk add --no-cache wget unzip && \
     wget https://releases.hashicorp.com/consul-template/${CONSUL_TEMPLATE_VERSION}/consul-template_${CONSUL_TEMPLATE_VERSION}_linux_amd64.zip && \
     unzip consul-template_${CONSUL_TEMPLATE_VERSION}_linux_amd64.zip && \
     mv consul-template /usr/local/bin/ && \

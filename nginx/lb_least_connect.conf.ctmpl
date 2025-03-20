@@ -1,3 +1,12 @@
+# shared memory for metrics
+lua_shared_dict prometheus_metrics 10m;
+
+# init phase for Prometheus client
+init_worker_by_lua_block  {
+    prometheus = require("prometheus").init("prometheus_metrics")
+    _NGINX_DOWNSTREAM_COUNTER = prometheus:counter("nginx_downstream_requests_total", "Total number of requests sent to downstream servers", {"downstream_server"})
+}
+
 log_format upstreamlog '$remote_addr $remote_user [$time_local] $request status:$status bytes:$body_bytes_sent upstream:$upstream_addr';
 
 upstream factorization_servers {
@@ -11,11 +20,25 @@ server {
     listen 80;
     server_name _;
 
+    location /metrics {
+        content_by_lua_block {
+            prometheus:collect()
+        }
+    }
+
     location / {
         proxy_pass http://factorization_servers;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         access_log /var/log/nginx/access.log upstreamlog;
+    }
+
+    # log phase: record the metric after response
+    log_by_lua_block {
+        if ngx.var.uri == "/factorize" then
+            local downstream = ngx.var.upstream_addr or "unknown"
+            _NGINX_DOWNSTREAM_COUNTER:inc(1, {downstream})
+        end
     }
 }

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/sync/errgroup"
@@ -43,20 +45,6 @@ func discoverService(consulAddr, service string) (string, error) {
 }
 
 func StartFactorizationRequests(ctx context.Context, n int, seed int64, testGoroutines int) error {
-	// Use Consul to dynamically discover the address for nginx.
-	consulAddr := os.Getenv("CONSUL_ADDR")
-	if consulAddr == "" {
-		consulAddr = "consul:8500"
-	}
-
-	nginxDest, err := discoverService(consulAddr, "nginx")
-	if err != nil {
-		// fmt.Println("Error discovering nginx service:", err)
-		// nginxDest = "localhost:8080"
-		panic(fmt.Sprintf("Error discovering nginx service: %s", err))
-	}
-
-	fmt.Println("Discovered nginx instance:", nginxDest)
 
 	file, err := os.Open("test_numbers.txt")
 	if err != nil {
@@ -106,6 +94,34 @@ func StartFactorizationRequests(ctx context.Context, n int, seed int64, testGoro
 
 	for t := 0; t < testGoroutines; t++ {
 		g.Go(func() error {
+			// Use Consul to dynamically discover the address for nginx.
+			consulAddr := os.Getenv("CONSUL_ADDR")
+			if consulAddr == "" {
+				consulAddr = "consul:8500"
+			}
+
+			var nginxDest atomic.Value
+
+			updateNginxDest := func() {
+				dest, err := discoverService(consulAddr, "nginx")
+				if err != nil {
+					fmt.Printf("Error discovering nginx service: %s\n", err)
+				}
+
+				fmt.Println("Discovered nginx instance:", dest)
+
+				nginxDest.Store(dest)
+			}
+
+			updateNginxDest()
+
+			go func() {
+				for {
+					time.Sleep(5 * time.Second)
+					updateNginxDest()
+				}
+			}()
+
 			numbers := make([]int64, len(numbersFromFile))
 			_ = copy(numbers, numbersFromFile)
 
@@ -122,7 +138,7 @@ func StartFactorizationRequests(ctx context.Context, n int, seed int64, testGoro
 				default:
 				}
 
-				url := fmt.Sprintf("http://%s/factorize?number=%d", nginxDest, number)
+				url := fmt.Sprintf("http://%s/factorize?number=%d", nginxDest.Load().(string), number)
 				resp, err := http.Get(url)
 				if err != nil {
 					fmt.Println("Error calling API:", err)

@@ -39,18 +39,29 @@ services:
   nginx:
     build: ./nginx
     container_name: nginx
-    ports:
-      - "80:80"
     depends_on:
       - api-server1
       - api-server2
     networks:
       - monitoring
     command: >
-      sh -c "consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload' &
+      sh -c "consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:openresty -s reload' &
             sleep 5 &&
             curl --request PUT --data '{\"ID\":\"nginx\",\"Name\":\"nginx\",\"Address\":\"nginx\",\"Port\":80}' http://consul:8500/v1/agent/service/register &&
-            nginx -g 'daemon off;'"
+            openresty -g 'daemon off;'"
+  nginx2:
+    build: ./nginx
+    container_name: nginx2
+    depends_on:
+      - api-server1
+      - api-server2
+    networks:
+      - monitoring
+    command: >
+      sh -c "consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:openresty -s reload' &
+            sleep 5 &&
+            curl --request PUT --data '{\"ID\":\"nginx2\",\"Name\":\"nginx\",\"Address\":\"nginx2\",\"Port\":80}' http://consul:8500/v1/agent/service/register &&
+            openresty -g 'daemon off;'"
 
   prometheus:
     depends_on:

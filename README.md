@@ -74,7 +74,7 @@ sudo docker service ls
 
 sudo docker cp ./nginx/load_balancer.conf.ctmpl $(sudo docker ps | grep nginx | awk '{print $1}'):/etc/nginx/templates/load_balancer.conf.ctmpl
 
-sudo docker exec -it $(sudo docker ps | grep nginx | awk '{print $1}') consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:nginx -s reload || true' -once
+sudo docker exec -it $(sudo docker ps | grep nginx | awk '{print $1}') consul-template -consul-addr=consul:8500 -template='/etc/nginx/templates/load_balancer.conf.ctmpl:/etc/nginx/conf.d/load_balancer.conf:openresty -s reload || true' -once
 ```
 
 2. (optional) examine the file in the container
