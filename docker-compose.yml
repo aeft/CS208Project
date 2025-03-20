@@ -22,9 +22,9 @@ services:
     networks:
       monitoring:
         ipv4_address: "172.26.0.5"
-    cpu_shares: 256 # CPU shares (default is 1024)
-    cpu_quota: 25000 # CPU quota in microseconds
-    cpu_period: 100000 # CPU period in microseconds
+    # cpu_shares: 256 # CPU shares (default is 1024)
+    # cpu_quota: 25000 # CPU quota in microseconds
+    # cpu_period: 100000 # CPU period in microseconds
 
   api-client:
     build: ./api/client
