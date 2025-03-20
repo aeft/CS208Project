@@ -1,4 +1,3 @@
-
 FROM openresty/openresty:alpine-fat
 
 # 安装编译依赖
@@ -22,6 +21,6 @@ RUN mkdir -p /var/log/nginx && rm /etc/nginx/conf.d/default.conf
 
 COPY load_balancer.conf /etc/nginx/conf.d/
 
+
 EXPOSE 80
 CMD ["/usr/local/openresty/bin/openresty", "-g", "daemon off;"]
-
