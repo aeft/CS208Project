@@ -27,6 +27,10 @@ init_worker_by_lua_block {
     cached_weights = {}
     cached_total_weight = 0
 
+    -- Global tables for storing smoothed metrics
+    smoothed_conn = {}
+    smoothed_exec = {}
+
     -- Function to update metrics from Prometheus and calculate weights
     local function update_metrics(premature)
         if premature then
@@ -41,7 +45,7 @@ init_worker_by_lua_block {
             local instance = server.address .. ":" .. server.port
 
             -- Query for active_connections 
-            local query_conn = 'active_connections{instance="' .. instance .. '"}'
+            local query_conn = 'avg_over_time(active_connections{instance="' .. instance .. '"}[5s])'
             -- Query for average execution time over last 5 seconds
             local query_exec = 'rate(execution_time_seconds_sum{instance="' .. instance .. '"}[5s]) / rate(execution_time_seconds_count{instance="' .. instance .. '"}[5s])'
 
@@ -53,7 +57,7 @@ init_worker_by_lua_block {
                 query = { query = query_conn },
                 ssl_verify = false,
             })
-            local conn_value = 1  -- Default value if no data
+            local conn_value = 0  -- Default value if no data
             if res_conn then
                 local data_conn = cjson.decode(res_conn.body)
                 if data_conn and data_conn.data and data_conn.data.result and data_conn.data.result[1] then
@@ -69,7 +73,7 @@ init_worker_by_lua_block {
                 query = { query = query_exec },
                 ssl_verify = false,
             })
-            local exec_value = 1  -- Default value if no data
+            local exec_value = 0  -- Default value if no data
             if res_exec then
                 local data_exec = cjson.decode(res_exec.body)
                 if data_exec and data_exec.data and data_exec.data.result and data_exec.data.result[1] then
@@ -78,15 +82,41 @@ init_worker_by_lua_block {
             else
                 ngx.log(ngx.ERR, "Query average execution time failed: ", err)
             end
+            if exec_value ~= exec_value or exec_value < 0 then
+                exec_value = 0  
+            end
+
+            -- Smoothing factor
+            local alpha = 0.2
+
+            -- In update_metrics function, after getting conn_value and exec_value:
+            if not smoothed_conn[instance] then
+                smoothed_conn[instance] = conn_value
+            else
+                smoothed_conn[instance] = alpha * conn_value + (1 - alpha) * smoothed_conn[instance]
+            end
+
+            if not smoothed_exec[instance] then
+                smoothed_exec[instance] = exec_value
+            else
+                smoothed_exec[instance] = alpha * exec_value + (1 - alpha) * smoothed_exec[instance]
+            end
+
+            -- smoothing factor for weight (0 < alpha < 1)
+            local weight_alpha = 0.1
 
             -- Calculate effective load and weight
-            local effective_load = conn_value * exec_value
+            local effective_load = smoothed_conn[instance] * math.pow(smoothed_exec[instance], 2)
 
             if effective_load <= 0 then
                 effective_load = 1e-5
             end
 
-            local weight = 1 / effective_load
+            local weight = math.pow(1 / effective_load, 0.5)
+            if cached_weights[instance] then
+                weight = weight_alpha * weight + (1 - weight_alpha) * cached_weights[instance]
+            end
+
             weights[i] = weight
             total_weight = total_weight + weight
 

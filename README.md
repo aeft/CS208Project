@@ -86,7 +86,7 @@ sudo docker exec -it $(sudo docker ps | grep nginx | awk '{print $1}') cat /etc/
 
 3. start requsts
 ```shell
-sudo docker exec -it $(sudo docker ps | grep nginx | awk '{print $1}') curl api-client:8090/start
+sudo docker exec -it $(sudo docker ps | grep nginx | awk 'NR==1{print $1}') curl api-client:8090/start?t=100
 ```
 
 
@@ -103,3 +103,6 @@ sudo python scale_service.py cs208_api-server-normal 1 --delay 30
 ```shell
 sudo docker exec -it <ContainerID> stress-ng --cpu 1 --cpu-load 100 --timeout 300
 ```
+
+## Acknowledgments
+Some parts of the code in this project were completed with the assistance of AI (e.g., ChatGPT). For example, the custom load balancing algorithm using Lua scripts was based on AI-generated code, which we adapted and improved.  

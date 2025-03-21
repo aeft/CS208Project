@@ -1,5 +1,11 @@
+error_log /var/log/nginx/error.log info; 
+
 # shared memory for metrics
 lua_shared_dict prometheus_metrics 10m;
+
+lua_shared_dict dns_cache 1m;
+
+resolver 127.0.0.11 valid=30s ipv6=off;
 
 # init phase for Prometheus client, dynamic server list, and timer-based metrics caching
 init_worker_by_lua_block {
@@ -21,6 +27,10 @@ init_worker_by_lua_block {
     cached_weights = {}
     cached_total_weight = 0
 
+    -- Global tables for storing smoothed metrics
+    smoothed_conn = {}
+    smoothed_exec = {}
+
     -- Function to update metrics from Prometheus and calculate weights
     local function update_metrics(premature)
         if premature then
@@ -29,15 +39,15 @@ init_worker_by_lua_block {
 
         local total_weight = 0
         local weights = {}
-        local prometheus_url = "http://prometheus-server/api/v1/query"
+        local prometheus_url = "http://prometheus:9090/api/v1/query"
 
         for i, server in ipairs(servers) do
             local instance = server.address .. ":" .. server.port
 
             -- Query for active_connections 
-            local query_conn = 'active_connections{instance="' .. instance .. '"}'
+            local query_conn = 'avg_over_time(active_connections{instance="' .. instance .. '"}[5s])'
             -- Query for average execution time over last 5 seconds
-            local query_exec = 'rate(execution_time_seconds_sum[5s])/rate(execution_time_seconds_count[5s]){instance="' .. instance .. '"}'
+            local query_exec = 'rate(execution_time_seconds_sum{instance="' .. instance .. '"}[5s]) / rate(execution_time_seconds_count{instance="' .. instance .. '"}[5s])'
 
             local httpc = http.new()
 
@@ -47,7 +57,7 @@ init_worker_by_lua_block {
                 query = { query = query_conn },
                 ssl_verify = false,
             })
-            local conn_value = 1  -- Default value if no data
+            local conn_value = 0  -- Default value if no data
             if res_conn then
                 local data_conn = cjson.decode(res_conn.body)
                 if data_conn and data_conn.data and data_conn.data.result and data_conn.data.result[1] then
@@ -63,7 +73,7 @@ init_worker_by_lua_block {
                 query = { query = query_exec },
                 ssl_verify = false,
             })
-            local exec_value = 1  -- Default value if no data
+            local exec_value = 0  -- Default value if no data
             if res_exec then
                 local data_exec = cjson.decode(res_exec.body)
                 if data_exec and data_exec.data and data_exec.data.result and data_exec.data.result[1] then
@@ -72,10 +82,41 @@ init_worker_by_lua_block {
             else
                 ngx.log(ngx.ERR, "Query average execution time failed: ", err)
             end
+            if exec_value ~= exec_value or exec_value < 0 then
+                exec_value = 0  
+            end
+
+            -- Smoothing factor
+            local alpha = 0.2
+
+            -- In update_metrics function, after getting conn_value and exec_value:
+            if not smoothed_conn[instance] then
+                smoothed_conn[instance] = conn_value
+            else
+                smoothed_conn[instance] = alpha * conn_value + (1 - alpha) * smoothed_conn[instance]
+            end
+
+            if not smoothed_exec[instance] then
+                smoothed_exec[instance] = exec_value
+            else
+                smoothed_exec[instance] = alpha * exec_value + (1 - alpha) * smoothed_exec[instance]
+            end
+
+            -- smoothing factor for weight (0 < alpha < 1)
+            local weight_alpha = 0.1
 
             -- Calculate effective load and weight
-            local effective_load = conn_value * exec_value
+            local effective_load = smoothed_conn[instance] * math.pow(smoothed_exec[instance], 2)
+
+            if effective_load <= 0 then
+                effective_load = 1e-5
+            end
+
             local weight = 1 / effective_load
+            if cached_weights[instance] then
+                weight = weight_alpha * weight + (1 - weight_alpha) * cached_weights[instance]
+            end
+
             weights[i] = weight
             total_weight = total_weight + weight
 
@@ -93,13 +134,100 @@ init_worker_by_lua_block {
     if not ok then
         ngx.log(ngx.ERR, "failed to create timer: ", err)
     end
+
+    local function update_dns_cache(premature)
+        if premature then
+            return
+        end
+
+        local resolver = require "resty.dns.resolver"
+        local r, err = resolver:new{
+            nameservers = {"127.0.0.11"},  -- Docker internal DNS
+            retrans = 5,
+            timeout = 2000,
+        }
+        if not r then
+            ngx.log(ngx.ERR, "DNS resolver init error: ", err)
+            return
+        end
+
+        for _, server in ipairs(servers) do
+            local host = server.address
+            if not host:match("^%d+%.%d+%.%d+%.%d+$") then
+                local answers, err = r:query(host, {qtype = r.TYPE_A})
+                if answers and not answers.errcode then
+                    local ip = answers[1].address
+                    local dns_cache = ngx.shared.dns_cache
+                    dns_cache:set(host, ip, 10) 
+                    ngx.log(ngx.INFO, "Cached DNS for ", host, " as ", ip)
+                else
+                    ngx.log(ngx.ERR, "DNS query failed for ", host, ": ", err)
+                end
+            else
+                local dns_cache = ngx.shared.dns_cache
+                dns_cache:set(host, host, 10)
+            end
+        end
+    end
+
+    local ok, err = ngx.timer.every(5, update_dns_cache)
+    if not ok then
+        ngx.log(ngx.ERR, "failed to create DNS update timer: ", err)
+    end
 }
 
 log_format upstreamlog '$remote_addr $remote_user [$time_local] $request status:$status bytes:$body_bytes_sent upstream:$upstream_addr';
 
-# Define a dummy upstream; actual upstream will be chosen dynamically.
-upstream dummy_upstream {
-    server 127.0.0.1:65535;
+upstream factorization_servers {
+    server 127.0.0.1:80;
+
+    balancer_by_lua_block {
+        -- Use cached metrics for upstream selection
+        if not cached_weights or cached_total_weight == 0 then
+            ngx.log(ngx.ERR, "Cached metrics not available, fallback to first server")
+            local chosen = servers[1]
+            local balancer = require "ngx.balancer"
+            local ok, err = balancer.set_current_peer(chosen.address, chosen.port)
+            if not ok then
+                ngx.log(ngx.ERR, "failed to set current peer: ", err)
+                return ngx.exit(500)
+            end
+            return
+        end
+
+        -- Weighted random selection using cached weights
+        local rand = math.random() * cached_total_weight
+        local selected_index = 1
+        for i, weight in ipairs(cached_weights) do
+            rand = rand - weight
+            if rand <= 0 then
+                selected_index = i
+                break
+            end
+        end
+
+        local chosen = servers[selected_index]
+        ngx.log(ngx.INFO, "Selected upstream server: " .. chosen.address .. ":" .. chosen.port)
+
+        local host = chosen.address
+
+        local ip_address = host
+        if not host:match("^%d+%.%d+%.%d+%.%d+$") then
+            local dns_cache = ngx.shared.dns_cache
+            ip_address = dns_cache:get(host)
+            if not ip_address then
+                ngx.log(ngx.ERR, "No cached DNS result for host: ", host)
+                return ngx.exit(500)
+            end
+        end
+
+        local balancer = require "ngx.balancer"
+        local ok, err = balancer.set_current_peer(ip_address, chosen.port)
+        if not ok then
+            ngx.log(ngx.ERR, "failed to set current peer: ", err)
+            return ngx.exit(500)
+        end
+    }
 }
 
 server {
@@ -114,47 +242,11 @@ server {
 
     location / {
         # Use dummy upstream; real upstream is selected in balancer_by_lua_block.
-        proxy_pass http://dummy_upstream;
+        proxy_pass http://factorization_servers;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         access_log /var/log/nginx/access.log upstreamlog;
-
-        balancer_by_lua_block {
-            -- Use cached metrics for upstream selection
-            if not cached_weights or cached_total_weight == 0 then
-                ngx.log(ngx.ERR, "Cached metrics not available, fallback to first server")
-                local chosen = servers[1]
-                local balancer = require "ngx.balancer"
-                local ok, err = balancer.set_current_peer(chosen.address, chosen.port)
-                if not ok then
-                    ngx.log(ngx.ERR, "failed to set current peer: ", err)
-                    return ngx.exit(500)
-                end
-                return
-            end
-
-            -- Weighted random selection using cached weights
-            local rand = math.random() * cached_total_weight
-            local selected_index = 1
-            for i, weight in ipairs(cached_weights) do
-                rand = rand - weight
-                if rand <= 0 then
-                    selected_index = i
-                    break
-                end
-            end
-
-            local chosen = servers[selected_index]
-            ngx.log(ngx.INFO, "Selected upstream server: " .. chosen.address .. ":" .. chosen.port)
-
-            local balancer = require "ngx.balancer"
-            local ok, err = balancer.set_current_peer(chosen.address, chosen.port)
-            if not ok then
-                ngx.log(ngx.ERR, "failed to set current peer: ", err)
-                return ngx.exit(500)
-            end
-        }
     }
 
     # log phase: record the metric after response for the /factorize endpoint
